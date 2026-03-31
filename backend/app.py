@@ -17,15 +17,14 @@ app = FastAPI(title="Smart Notes", version="0.1.0")
 # ── OpenTelemetry instrumentation ────────────────────────────────────────────
 
 if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
-    import logging
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
-    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
     from opentelemetry._logs import set_logger_provider
 
@@ -33,20 +32,19 @@ if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
         "service.name": os.environ.get("OTEL_SERVICE_NAME", "simple-python-notes-app"),
     })
 
-    # Traces
+    # Traces — use SimpleSpanProcessor (gunicorn fork kills batch threads)
     tracer_provider = TracerProvider(resource=resource)
-    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    tracer_provider.add_span_processor(SimpleSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(tracer_provider)
     FastAPIInstrumentor.instrument_app(app)
 
     # Logs — bridge Python logging to OTLP
     logger_provider = LoggerProvider(resource=resource)
-    logger_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
+    logger_provider.add_log_record_processor(SimpleLogRecordProcessor(OTLPLogExporter()))
     set_logger_provider(logger_provider)
     otel_handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
     logging.getLogger().addHandler(otel_handler)
     logging.getLogger().setLevel(logging.INFO)
-    logging.getLogger(__name__).info("OpenTelemetry initialized — traces and logs enabled")
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 logger = logging.getLogger("smart_notes")
