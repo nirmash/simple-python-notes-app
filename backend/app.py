@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -16,22 +17,39 @@ app = FastAPI(title="Smart Notes", version="0.1.0")
 # ── OpenTelemetry instrumentation ────────────────────────────────────────────
 
 if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    import logging
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
+    from opentelemetry._logs import set_logger_provider
 
     resource = Resource.create({
         "service.name": os.environ.get("OTEL_SERVICE_NAME", "simple-python-notes-app"),
     })
-    provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-    trace.set_tracer_provider(provider)
+
+    # Traces
+    tracer_provider = TracerProvider(resource=resource)
+    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(tracer_provider)
     FastAPIInstrumentor.instrument_app(app)
 
+    # Logs — bridge Python logging to OTLP
+    logger_provider = LoggerProvider(resource=resource)
+    logger_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter()))
+    set_logger_provider(logger_provider)
+    otel_handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
+    logging.getLogger().addHandler(otel_handler)
+    logging.getLogger().setLevel(logging.INFO)
+    logging.getLogger(__name__).info("OpenTelemetry initialized — traces and logs enabled")
+
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+logger = logging.getLogger("smart_notes")
 
 # ── API routes ───────────────────────────────────────────────────────────────
 
@@ -42,7 +60,9 @@ async def health():
 
 @app.post("/api/notes", response_model=NoteOut, status_code=201)
 async def create_note(data: NoteCreate):
-    return note_store.create(data).to_out()
+    note = note_store.create(data).to_out()
+    logger.info("Note created: %s", note.id)
+    return note
 
 
 @app.get("/api/notes", response_model=list[NoteOut])
@@ -70,6 +90,7 @@ async def update_note(note_id: str, data: NoteUpdate):
 async def delete_note(note_id: str):
     if not note_store.delete(note_id):
         raise HTTPException(404, "Note not found")
+    logger.info("Note deleted: %s", note_id)
 
 
 @app.post("/api/notes/{note_id}/ai/{action}", response_model=AIResult)
