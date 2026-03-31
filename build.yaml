@@ -3,4 +3,3 @@ platform: python
 platformVersion: "3.14"
 run:
   port: 8080
-  startCommand: "opentelemetry-instrument gunicorn --bind 0.0.0.0:8080 --timeout 600 application:app"

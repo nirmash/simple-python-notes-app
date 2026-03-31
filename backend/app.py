@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -11,6 +12,24 @@ from backend.store import note_store
 from backend.ai_service import AIAction, run_ai_action, is_ai_enabled
 
 app = FastAPI(title="Smart Notes", version="0.1.0")
+
+# ── OpenTelemetry instrumentation ────────────────────────────────────────────
+
+if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    resource = Resource.create({
+        "service.name": os.environ.get("OTEL_SERVICE_NAME", "simple-python-notes-app"),
+    })
+    provider = TracerProvider(resource=resource)
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+    trace.set_tracer_provider(provider)
+    FastAPIInstrumentor.instrument_app(app)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
