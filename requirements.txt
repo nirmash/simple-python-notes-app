@@ -3,3 +3,8 @@ gunicorn>=21,<24
 a2wsgi>=1.7,<2
 # Uncomment for AI integration:
 # openai>=1.12
+
+# OpenTelemetry auto-instrumentation
+opentelemetry-distro>=0.48b0
+opentelemetry-exporter-otlp-proto-http>=1.27
+opentelemetry-instrumentation-fastapi>=0.48b0
