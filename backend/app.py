@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -12,11 +13,9 @@ from backend.models import NoteCreate, NoteUpdate, NoteOut, AIResult
 from backend.store import note_store
 from backend.ai_service import AIAction, run_ai_action, is_ai_enabled
 
-app = FastAPI(title="Smart Notes", version="0.1.0")
 
-# ── OpenTelemetry instrumentation ────────────────────────────────────────────
-
-if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+def _setup_otel(app):
+    """Initialize OpenTelemetry traces + logs export."""
     from opentelemetry import trace
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -28,23 +27,39 @@ if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
     from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
     from opentelemetry._logs import set_logger_provider
 
+    endpoint = os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"]
     resource = Resource.create({
         "service.name": os.environ.get("OTEL_SERVICE_NAME", "simple-python-notes-app"),
     })
 
-    # Traces — use SimpleSpanProcessor (gunicorn fork kills batch threads)
+    # Traces
     tracer_provider = TracerProvider(resource=resource)
-    tracer_provider.add_span_processor(SimpleSpanProcessor(OTLPSpanExporter()))
+    tracer_provider.add_span_processor(
+        SimpleSpanProcessor(OTLPSpanExporter(endpoint=endpoint + "/v1/traces"))
+    )
     trace.set_tracer_provider(tracer_provider)
     FastAPIInstrumentor.instrument_app(app)
 
-    # Logs — bridge Python logging to OTLP
+    # Logs
     logger_provider = LoggerProvider(resource=resource)
-    logger_provider.add_log_record_processor(SimpleLogRecordProcessor(OTLPLogExporter()))
+    logger_provider.add_log_record_processor(
+        SimpleLogRecordProcessor(OTLPLogExporter(endpoint=endpoint + "/v1/logs"))
+    )
     set_logger_provider(logger_provider)
-    otel_handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
-    logging.getLogger().addHandler(otel_handler)
+    handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
+    logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(logging.INFO)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    if os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        _setup_otel(app)
+        logging.getLogger("smart_notes").info("OTEL initialized")
+    yield
+
+
+app = FastAPI(title="Smart Notes", version="0.1.0", lifespan=lifespan)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 logger = logging.getLogger("smart_notes")
