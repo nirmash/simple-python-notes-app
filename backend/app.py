@@ -16,7 +16,7 @@ app = FastAPI(title="Smart Notes", version="0.1.0")
 
 # ── OpenTelemetry instrumentation ────────────────────────────────────────────
 
-_otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or "https://production-otlp-2fa05823.app.embr.azure"
+_otel_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT") or "https://production-otlp-00229c32.app.embr.azure"
 _prom_endpoint = "https://production-prometheus-embr-1a780423.app.embr.azure/api/v1/otlp/v1/metrics"
 _notes_counter = None
 
